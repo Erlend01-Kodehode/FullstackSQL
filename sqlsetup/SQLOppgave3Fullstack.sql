@@ -55,3 +55,12 @@ create table t_UpdateLog (
 	Info nvarchar(1000)
 )
 GO
+
+create table t_ErrorLog (
+	ID bigint primary key identity (1,1) not null,
+	DateCreated datetime default getdate() not null,
+	UserID bigint,
+	Type nvarchar(50),
+	Info nvarchar(1000)
+)
+GO

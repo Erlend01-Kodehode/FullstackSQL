@@ -12,56 +12,63 @@ GO
 create procedure sp_Login @UserName nvarchar(100), @Password nvarchar(100), @Token varbinary(4000) output
 as
 begin
-	--Declare Variables
-	declare @UserID bigint;
-	declare @Salt nvarchar(4000);
-	declare @HashedPW varbinary(4000);
-	declare @TMPToken nvarchar(4000);
+	begin try
+		--Declare Variables
+		declare @UserID bigint;
+		declare @Salt nvarchar(4000);
+		declare @HashedPW varbinary(4000);
+		declare @TMPToken nvarchar(4000);
 
-	--Fetch Salt for PW decryption
-	select @Salt = Salt
-	from t_User
-	where UserName = @UserName;
+		--Fetch Salt for PW decryption
+		select @Salt = Salt
+		from t_User
+		where UserName = @UserName;
 
-	--If Salt for user exists then proceed with login
-	if @Salt is not null
+		--If Salt for user exists then proceed with login
+		if @Salt is not null
+			begin
+				--Creates hash of input Password
+				set @HashedPW = HASHBYTES('SHA2_512', @Password + @Salt);
+
+				--Find UserID after comparing hashed password with already existing hash
+				select @UserID = UserID
+				from t_User
+				where UserName = @UserName
+				and Password = @HashedPW;
+
+				--If user is found, create/update token
+				if @UserID is null
+					begin
+						--Returns error value
+						return -1;
+					end
+				else
+					begin
+						set @TMPToken = replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '');
+						set @Token = HASHBYTES('SHA2_512', @TMPToken);
+
+						--Clear space to reset token
+						delete from t_UserTokens where UserID = @UserID;
+
+						--Insert into Token table
+						insert into t_UserTokens (UserID, Token, TokenValidDate) values (@UserID, @Token, DateAdd(minute, 60, getdate()));
+
+						--Returns success value
+						select @Token as Token, @UserName as Username, @HashedPW as HashedPW;
+						return 0;
+					end
+			end
+		else
+			begin
+				--Returns error value
+				return -1;
+			end
+	end try
+	begin catch
 		begin
-			--Creates hash of input Password
-			set @HashedPW = HASHBYTES('SHA2_512', @Password + @Salt);
-
-			--Find UserID after comparing hashed password with already existing hash
-			select @UserID = UserID
-			from t_User
-			where UserName = @UserName
-			and Password = @HashedPW;
-
-			--If user is found, create/update token
-			if @UserID is null
-				begin
-					--Returns error value
-					return -1;
-				end
-			else
-				begin
-					set @TMPToken = replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '');
-					set @Token = HASHBYTES('SHA2_512', @TMPToken);
-
-					--Clear space to reset token
-					delete from t_UserTokens where UserID = @UserID;
-
-					--Insert into Token table
-					insert into t_UserTokens (UserID, Token, TokenValidDate) values (@UserID, @Token, DateAdd(minute, 60, getdate()));
-
-					--Returns success value
-					select @Token as Token, @UserName as Username, @HashedPW as HashedPW;
-					return 0;
-				end
-		end
-	else
-		begin
-			--Returns error value
 			return -1;
 		end
+	end catch
 end;
 GO
 
@@ -71,28 +78,35 @@ GO
 create procedure sp_Register @UserName nvarchar(100), @Email nvarchar(100), @Password nvarchar(100)
 as
 begin
-	--Declare Variables
-	declare @Salt nvarchar(4000);
-	declare @Seed nvarchar(4000);
-	declare @HPassword varbinary(4000);
+	begin try
+		--Declare Variables
+		declare @Salt nvarchar(4000);
+		declare @Seed nvarchar(4000);
+		declare @HPassword varbinary(4000);
 
-	--Create Salt using random seed
-	set @Seed = replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '');
-	set @Salt = HASHBYTES('SHA2_512', @Seed);
+		--Create Salt using random seed
+		set @Seed = replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '');
+		set @Salt = HASHBYTES('SHA2_512', @Seed);
 
-	--If data is provided, attempt user creation
-	if @UserName is not null and @Email is not null and @Password is not null
-		begin
-			set @HPassword = HASHBYTES('SHA2_512', @Password + @Salt)
-			insert into t_User (UserName, Email, Password, Salt)
-			values
-			(@UserName, @Email, @HPassword, @Salt);
-			return 0;
-		end
-	else
+		--If data is provided, attempt user creation
+		if @UserName is not null and @Email is not null and @Password is not null
+			begin
+				set @HPassword = HASHBYTES('SHA2_512', @Password + @Salt)
+				insert into t_User (UserName, Email, Password, Salt)
+				values
+				(@UserName, @Email, @HPassword, @Salt);
+				return 0;
+			end
+		else
+			begin
+				return -1;
+			end
+	end try
+	begin catch
 		begin
 			return -1;
 		end
+	end catch
 end;
 GO
 
@@ -120,65 +134,71 @@ GO
 create procedure sp_Edit @UserName nvarchar(100), @Email nvarchar(100), @Password nvarchar(100), @NewPassword nvarchar(100), @Token varbinary(4000) OUTPUT
 as
 begin
-	--Declare Variables
-	declare @UserID bigint;
-	declare @Salt nvarchar(4000);
-	declare @HashedPW varbinary(4000);
-	declare @TMPToken nvarchar(4000);
-	declare @Seed nvarchar(4000);
+	begin try
+		--Declare Variables
+		declare @UserID bigint;
+		declare @Salt nvarchar(4000);
+		declare @HashedPW varbinary(4000);
+		declare @TMPToken nvarchar(4000);
+		declare @Seed nvarchar(4000);
 
-	set @Seed = replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '');
+		set @Seed = replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '');
 
-	select @Salt = Salt
-	from t_User
-	where UserName = @UserName;
+		select @Salt = Salt
+		from t_User
+		where UserName = @UserName;
 
-	if @Salt is not null
+		if @Salt is not null
+			begin
+				--Compate Password with Hash
+				set @HashedPW = HASHBYTES('SHA2_512', @Password + @Salt);
+
+				select @UserID = UserID
+				from t_User
+				where UserName = @UserName
+				and Password = @HashedPW;
+
+				if @UserID is null
+					begin
+						--Return Failure
+						return -1;
+					end
+				else
+					begin
+						set @TMPToken = replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '');
+						set @Token = HASHBYTES('SHA2_512', @TMPToken);
+
+						--Clear space to reset token
+						delete from t_UserTokens where UserID = @UserID;
+
+						--Insert into Token table
+						insert into t_UserTokens (UserID, Token, TokenValidDate) values (@UserID, @Token, DateAdd(minute, 60, getdate()));
+
+						--Generate new Salt
+						set @Salt = HASHBYTES('SHA2_512', @Seed)
+
+						--Set new Password
+						set @HashedPW = HASHBYTES('SHA2_512', @NewPassword + @Salt)
+
+						--Update User
+						update t_User set Password = @HashedPW
+						where UserID = @UserID
+
+						--Return Procedure
+						return 0;
+					end
+			end
+		else
+			begin
+				--Return Failure
+				return -1;
+			end
+	end try
+	begin catch
 		begin
-			--Compate Password with Hash
-			set @HashedPW = HASHBYTES('SHA2_512', @Password + @Salt);
-
-			select @UserID = UserID
-			from t_User
-			where UserName = @UserName
-			and Password = @HashedPW;
-
-			if @UserID is null
-				begin
-					--Return Failure
-					return -1;
-				end
-			else
-				begin
-					set @TMPToken = replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '') + replace(newID(), '-', '');
-					set @Token = HASHBYTES('SHA2_512', @TMPToken);
-
-					--Clear space to reset token
-					delete from t_UserTokens where UserID = @UserID;
-
-					--Insert into Token table
-					insert into t_UserTokens (UserID, Token, TokenValidDate) values (@UserID, @Token, DateAdd(minute, 60, getdate()));
-
-					--Generate new Salt
-					set @Salt = HASHBYTES('SHA2_512', @Seed)
-
-					--Set new Password
-					set @HashedPW = HASHBYTES('SHA2_512', @NewPassword + @Salt)
-
-					--Update User
-					update t_User set Password = @HashedPW
-					where UserID = @UserID
-
-					--Return Procedure
-					return 0;
-				end
-		end
-	else
-		begin
-			--Return Failure
 			return -1;
 		end
-
+	end catch
 end
 GO
 
